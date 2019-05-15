@@ -2,7 +2,6 @@ package goproxy
 
 import (
 	"crypto/rand"
-	"crypto/rsa"
 	"crypto/sha1"
 	"crypto/tls"
 	"crypto/x509"
@@ -82,16 +81,12 @@ func signHost(ca tls.Certificate, hosts []string) (cert *tls.Certificate, err er
 	if csprng, err = NewCounterEncryptorRandFromKey(ca.PrivateKey, hash); err != nil {
 		return
 	}
-	var certpriv *rsa.PrivateKey
-	if certpriv, err = rsa.GenerateKey(&csprng, 2048); err != nil {
-		return
-	}
 	var derBytes []byte
-	if derBytes, err = x509.CreateCertificate(&csprng, &template, x509ca, &certpriv.PublicKey, ca.PrivateKey); err != nil {
+	if derBytes, err = x509.CreateCertificate(&csprng, &template, x509ca, x509ca.PublicKey, ca.PrivateKey); err != nil {
 		return
 	}
 	return &tls.Certificate{
 		Certificate: [][]byte{derBytes, ca.Certificate[0]},
-		PrivateKey:  certpriv,
+		PrivateKey:  ca.PrivateKey,
 	}, nil
 }
