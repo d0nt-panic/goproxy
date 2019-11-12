@@ -21,6 +21,7 @@ type ProxyHttpServer struct {
 	// setting Verbose to true will log information on each request sent to the proxy
 	Verbose         bool
 	Logger          Logger
+	IsReverseProxy  bool
 	NonproxyHandler http.Handler
 	reqHandlers     []ReqHandler
 	respHandlers    []RespHandler
@@ -106,13 +107,17 @@ func (proxy *ProxyHttpServer) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 
 		var err error
 		ctx.Logf("Got request %v %v %v %v", r.URL.Path, r.Host, r.Method, r.URL.String())
-		if !r.URL.IsAbs() {
+		if (proxy.IsReverseProxy && r.URL.IsAbs()) || (!proxy.IsReverseProxy && !r.URL.IsAbs()) {
 			proxy.NonproxyHandler.ServeHTTP(w, r)
 			return
 		}
 		r, resp := proxy.filterRequest(r, ctx)
 
 		if resp == nil {
+			if proxy.IsReverseProxy && (r.URL.Scheme == "" || r.URL.Host == "") {
+ 				panic("ReverseProxy did not rewrite request's Scheme or Host")
+ 			}
+
 			removeProxyHeaders(ctx, r)
 			resp, err = ctx.RoundTrip(r)
 			if err != nil {
@@ -157,11 +162,22 @@ func NewProxyHttpServer() *ProxyHttpServer {
 		respHandlers:  []RespHandler{},
 		httpsHandlers: []HttpsHandler{},
 		NonproxyHandler: http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-			http.Error(w, "This is a proxy server. Does not respond to non-proxy requests.", 500)
+			http.Error(w, "This is a forward proxy server. Does not respond to non-proxy requests.", 500)
 		}),
 		Tr: &http.Transport{TLSClientConfig: tlsClientSkipVerify, Proxy: http.ProxyFromEnvironment},
 	}
 	proxy.ConnectDial = dialerFromEnv(&proxy)
 
 	return &proxy
+}
+
+func NewReverseProxyHttpServer() *ProxyHttpServer {
+ 	reverseProxy := NewProxyHttpServer()
+
+ 	reverseProxy.IsReverseProxy = true
+ 	reverseProxy.NonproxyHandler = http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+ 		http.Error(w, "This is a reverse proxy server. Does not respond to proxy requests.", 500)
+ 	})
+
+ 	return reverseProxy
 }
